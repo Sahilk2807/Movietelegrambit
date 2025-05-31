@@ -1,9 +1,8 @@
 import os
+import json
 import gspread
 import requests
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from aiogram.utils.markdown import hbold
 from oauth2client.service_account import ServiceAccountCredentials
 
 bot = Bot(token=os.getenv("BOT_TOKEN"))
@@ -14,9 +13,18 @@ GPLINKS_API = os.getenv("GPLINKS_API")
 SHEET_ID = os.getenv("SHEET_ID")
 SHEET_NAME = os.getenv("SHEET_NAME")
 
+def get_google_credentials():
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds_json = os.getenv("GOOGLE_CREDS_JSON")
+    creds_dict = json.loads(creds_json)
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    return creds
+
 def get_google_sheet_data():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name("movie-downlod-461506-1e54d630195d.json", scope)
+    creds = get_google_credentials()
     client = gspread.authorize(creds)
     sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
     return sheet.get_all_records()
@@ -38,13 +46,12 @@ async def add_movie(message: types.Message):
         return await message.reply("🚫 You are not authorized.")
     try:
         _, name, link = message.text.split(maxsplit=2)
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name("movie-downlod-461506-1e54d630195d.json", scope)
+        creds = get_google_credentials()
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
         sheet.append_row([name, link])
         await message.reply("✅ Movie added successfully!")
-    except Exception as e:
+    except Exception:
         await message.reply("❌ Failed to add. Format:\n/add Movie_Name https://link")
 
 @dp.message_handler(commands=["remove"])
@@ -54,8 +61,7 @@ async def remove_movie(message: types.Message):
     try:
         _, movie = message.text.split(maxsplit=1)
         sheet_data = get_google_sheet_data()
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name("movie-downlod-461506-1e54d630195d.json", scope)
+        creds = get_google_credentials()
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
         for i, row in enumerate(sheet_data, start=2):
@@ -64,7 +70,7 @@ async def remove_movie(message: types.Message):
                 await message.reply("🗑️ Movie removed.")
                 return
         await message.reply("❌ Movie not found.")
-    except Exception as e:
+    except Exception:
         await message.reply("❌ Error removing movie.")
 
 @dp.message_handler()

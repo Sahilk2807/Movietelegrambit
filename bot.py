@@ -1,83 +1,86 @@
-import logging, gspread, requests, random, os
-from aiogram import Bot, Dispatcher, executor, types
-from dotenv import load_dotenv
+import os
+import gspread
+import requests
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.utils.markdown import hbold
 from oauth2client.service_account import ServiceAccountCredentials
 
-# Load environment variables
-load_dotenv()
+bot = Bot(token=os.getenv("BOT_TOKEN"))
+dp = Dispatcher(bot)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GPLINK_API = os.getenv("GPLINK_API")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
+GPLINKS_API = os.getenv("GPLINKS_API")
 SHEET_ID = os.getenv("SHEET_ID")
 SHEET_NAME = os.getenv("SHEET_NAME")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
-logging.basicConfig(level=logging.INFO)
+def get_google_sheet_data():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_name("movie-downlod-461506-1e54d630195d.json", scope)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+    return sheet.get_all_records()
 
-# Google Sheets setup
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("movie-downlod-461506-1e54d630195d.json", scope)
-
-emojis = ["🍿", "🎬", "🎞️", "✨", "🔍", "🚀"]
-
-def shorten_link(url):
+def shorten_link_gplinks(url):
     try:
-        res = requests.get(f"https://gplinks.in/api?api={GPLINK_API}&url={url}")
-        return res.json().get("shortenedUrl") or url
+        response = requests.get(f"https://gplinks.in/api?api={GPLINKS_API}&url={url}")
+        return response.json().get("shortenedUrl", url)
     except:
         return url
 
-@dp.message_handler(commands=['start'])
-async def start_cmd(msg: types.Message):
-    await msg.reply("🎬 *Welcome to Movie Bot!*\nSend me the *movie name* (min 3 letters) to get links.", parse_mode="Markdown")
+@dp.message_handler(commands=["start"])
+async def start(message: types.Message):
+    await message.reply("🎬 *Welcome to the Movie Bot!*\n\nSend me a movie name to search.", parse_mode="Markdown")
 
-@dp.message_handler(commands=['add'])
-async def add_movie(msg: types.Message):
-    if msg.from_user.id != ADMIN_ID:
-        return await msg.reply("⛔ Not allowed.")
+@dp.message_handler(commands=["add"])
+async def add_movie(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return await message.reply("🚫 You are not authorized.")
     try:
-        _, name, link = msg.text.split(" ", 2)
+        _, name, link = message.text.split(maxsplit=2)
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_name("movie-downlod-461506-1e54d630195d.json", scope)
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
         sheet.append_row([name, link])
-        await msg.reply(f"✅ Added: *{name}*", parse_mode="Markdown")
-    except:
-        await msg.reply("❌ Format: `/add Movie_Name Movie_Link`", parse_mode="Markdown")
+        await message.reply("✅ Movie added successfully!")
+    except Exception as e:
+        await message.reply("❌ Failed to add. Format:\n/add Movie_Name https://link")
 
-@dp.message_handler(commands=['remove'])
-async def remove_movie(msg: types.Message):
-    if msg.from_user.id != ADMIN_ID:
-        return await msg.reply("⛔ Not allowed.")
-    name = msg.get_args().strip().lower()
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
-    data = sheet.get_all_values()
-    for idx, row in enumerate(data, 1):
-        if row[0].strip().lower() == name:
-            sheet.delete_rows(idx)
-            return await msg.reply(f"🗑️ Removed: *{row[0]}*", parse_mode="Markdown")
-    await msg.reply("❌ Movie not found.")
+@dp.message_handler(commands=["remove"])
+async def remove_movie(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return await message.reply("🚫 You are not authorized.")
+    try:
+        _, movie = message.text.split(maxsplit=1)
+        sheet_data = get_google_sheet_data()
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_name("movie-downlod-461506-1e54d630195d.json", scope)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+        for i, row in enumerate(sheet_data, start=2):
+            if row["Name"].lower().startswith(movie.lower()[:3]):
+                sheet.delete_rows(i)
+                await message.reply("🗑️ Movie removed.")
+                return
+        await message.reply("❌ Movie not found.")
+    except Exception as e:
+        await message.reply("❌ Error removing movie.")
 
 @dp.message_handler()
-async def search_movie(msg: types.Message):
-    query = msg.text.strip().lower()
-    if len(query) < 3:
-        return await msg.reply("❗ Type at least 3 letters.")
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
-    data = sheet.get_all_values()
-    matches = []
+async def search_movie(message: types.Message):
+    query = message.text.strip().lower()
+    data = get_google_sheet_data()
+    found = []
+
     for row in data:
-        movie_name = row[0].strip()
+        movie_name = row.get("Name", "")
         if movie_name.lower().startswith(query[:3]):
-            short_url = shorten_link(row[1].strip())
-            emoji = random.choice(emojis)
-            link_output = short_url if " " not in short_url else "\n" + short_url
-            result = f"{emoji} *{movie_name}*\n🎥 Link:\n{link_output}"
-            matches.append(result)
-    if matches:
-        await msg.reply("\n\n".join(matches), parse_mode="Markdown")
+            short_link = shorten_link_gplinks(row.get("Link", ""))
+            found.append(f"🍿 *{movie_name}*\n🔗 {short_link}")
+
+    if found:
+        reply_text = "\n\n".join(found)
+        await message.reply(f"✨ Found {len(found)} result(s):\n\n{reply_text}", parse_mode="Markdown")
     else:
-        await msg.reply("❌ No movie found.")
+        await message.reply("😢 No matching movies found.")

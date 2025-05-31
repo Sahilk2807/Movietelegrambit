@@ -3,6 +3,7 @@ from aiogram import Bot, Dispatcher, executor, types
 from dotenv import load_dotenv
 from oauth2client.service_account import ServiceAccountCredentials
 
+# Load environment variables
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -17,7 +18,7 @@ logging.basicConfig(level=logging.INFO)
 
 # Google Sheets setup
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+creds = ServiceAccountCredentials.from_json_keyfile_name("movie-downlod-461506-1e54d630195d.json", scope)
 
 emojis = ["🍿", "🎬", "🎞️", "✨", "🔍", "🚀"]
 
@@ -73,10 +74,10 @@ async def search_movie(msg: types.Message):
         if movie_name.lower().startswith(query[:3]):
             short_url = shorten_link(row[1].strip())
             emoji = random.choice(emojis)
-            link_output = short_url if " " not in short_url else "\\n" + short_url
-            result = f"{emoji} *{movie_name}*\\n🎥 Link:\\n{link_output}"
+            link_output = short_url if " " not in short_url else "\n" + short_url
+            result = f"{emoji} *{movie_name}*\n🎥 Link:\n{link_output}"
             matches.append(result)
     if matches:
-        await msg.reply("\\n\\n".join(matches), parse_mode="Markdown")
+        await msg.reply("\n\n".join(matches), parse_mode="Markdown")
     else:
         await msg.reply("❌ No movie found.")

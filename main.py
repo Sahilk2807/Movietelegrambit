@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Request
-import asyncio
 from aiogram import types
-from bot import dp, bot
+from bot import dp
 
 app = FastAPI()
 
